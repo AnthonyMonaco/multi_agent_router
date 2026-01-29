@@ -1,0 +1,12 @@
+# Example intent script for Multi-Agent Router
+# Place in: intents/multi_agent_route.yaml
+
+MultiAgentRoute:
+  action:
+    - service: conversation.process
+      data:
+        agent_id: conversation.multi_agent_router
+        text: "{{ query }}"
+      response_variable: router_response
+  speech:
+    text: "{{ router_response.response.speech.plain.speech if router_response is defined else 'Sorry, I had trouble processing that.' }}"

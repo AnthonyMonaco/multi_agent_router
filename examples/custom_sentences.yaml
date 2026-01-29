@@ -1,0 +1,12 @@
+# Example custom sentences for Multi-Agent Router
+# Place in: custom_sentences/en/multi_agent.yaml
+
+language: "en"
+intents:
+  MultiAgentRoute:
+    data:
+      - sentences:
+          - "{query}"
+lists:
+  query:
+    wildcard: true
