@@ -251,4 +251,4 @@ For issues, feature requests, or questions, please open an issue on GitHub.
 
 ## Credits
 
-Created for Home Assistant community by [Your Name].
+Created for Home Assistant community by Anthony Monaco.
