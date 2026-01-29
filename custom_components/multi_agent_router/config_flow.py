@@ -33,7 +33,11 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def build_agent_prompt(agents: list[dict]) -> str:
-    """Build unified agent's system prompt combining fast path and routing logic."""
+    """Build agent prompt using static fallback with real agent names.
+
+    This is the synchronous fallback version used when AI generation is not available.
+    For AI-powered prompt generation, see async_build_agent_prompt_with_ai() in __init__.py
+    """
     agent_list = []
     for agent in agents:
         agent_info = f'- "{agent[CONF_AGENT_NAME]}": {agent[CONF_AGENT_DESCRIPTION]}'
@@ -47,30 +51,48 @@ def build_agent_prompt(agents: list[dict]) -> str:
 
     agent_list_text = "\n".join(agent_list)
 
-    return f"""You are a smart home automation assistant. You can either handle requests directly or route them to specialized agents.
+    # Generate examples using actual agent names from the configuration
+    # This ensures no placeholder confusion like [AgentName]
+    examples = []
+    if len(agents) >= 2:
+        # Assume first agent is for thinking/questions, second for execution
+        examples = [
+            f'"turn on kitchen lights" → ROUTE: {agents[1][CONF_AGENT_NAME]}',
+            f'"what\'s the weather in Arvada" → ROUTE: {agents[0][CONF_AGENT_NAME]}',
+            f'"tell me about my energy usage" → ROUTE: {agents[0][CONF_AGENT_NAME]}',
+            f'"are the doors locked" → ROUTE: {agents[0][CONF_AGENT_NAME]}',
+            f'"lock the front door" → ROUTE: {agents[1][CONF_AGENT_NAME]}',
+        ]
+    elif len(agents) == 1:
+        # Only one agent, route everything to it
+        examples = [
+            f'"turn on kitchen lights" → ROUTE: {agents[0][CONF_AGENT_NAME]}',
+            f'"what\'s the weather in Arvada" → ROUTE: {agents[0][CONF_AGENT_NAME]}',
+            f'"tell me about my energy usage" → ROUTE: {agents[0][CONF_AGENT_NAME]}',
+        ]
+    else:
+        # No agents configured, use generic placeholder
+        examples = [
+            '"turn on kitchen lights" → ROUTE: [Agent]',
+            '"what\'s the weather" → ROUTE: [Agent]',
+        ]
 
-HANDLE DIRECTLY - Simple, immediate home control commands:
-- Turning devices on/off (lights, switches, fans, etc.)
-- Locking/unlocking doors
-- Opening/closing covers (blinds, garage, etc.)
-- Setting simple values (temperature, brightness)
-- Starting/stopping devices (vacuum, music, etc.)
+    examples_text = "\n".join(examples)
 
-ROUTE TO SPECIALIZED AGENTS - Complex requests that need specialized handling:
+    return f"""You are a routing assistant. Classify requests and respond with ONLY "ROUTE: [AgentName]"
 
 Available agents:
 {agent_list_text}
 
-RESPONSE FORMAT:
-- If handling directly: Execute via Home Assistant API and respond with "OK" or "" (empty)
-- If routing: Respond with ONLY "ROUTE: [AgentName]"
+Routing Rules:
+1. ANY question (who, what, when, where, why, how) → Route to thinking/analysis agent
+2. ANY request for information or status → Route to thinking/analysis agent
+3. Device control commands → Route to execution agent
 
 Examples:
-"turn on kitchen lights" → [Execute directly via API, respond "OK"]
-"what's the weather in Arvada" → ROUTE: Jarvis Think
-"tell me about my energy usage" → ROUTE: Jarvis Think
-"are the doors locked" → ROUTE: Jarvis Think
-"start the dishwasher" → [Execute directly via API, respond "OK"]"""
+{examples_text}
+
+CRITICAL: Respond with ONLY "ROUTE: [AgentName]" - nothing else. Never try to answer questions yourself."""
 
 
 class MultiAgentRouterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):

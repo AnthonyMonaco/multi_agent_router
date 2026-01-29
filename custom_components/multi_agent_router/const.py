@@ -15,3 +15,6 @@ CONF_AGENT_KEYWORDS = "agent_keywords"
 
 # Defaults
 DEFAULT_AGENT_NAME = "Multi-Agent Router"
+
+# Services
+SERVICE_REGENERATE_PROMPT = "regenerate_prompt"

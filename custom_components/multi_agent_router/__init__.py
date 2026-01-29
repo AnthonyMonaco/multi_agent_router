@@ -1,4 +1,5 @@
 """Multi-Agent Router integration for Home Assistant."""
+import json
 import logging
 
 from homeassistant.config_entries import ConfigEntry
@@ -9,11 +10,89 @@ from .const import (
     CONF_AGENTS,
     CONF_AGENT,
     CONF_AGENT_PROMPT,
+    CONF_AGENT_NAME,
+    CONF_AGENT_DESCRIPTION,
+    CONF_AGENT_KEYWORDS,
     DOMAIN,
 )
 from .conversation_agent import MultiAgentRouter
 
 _LOGGER = logging.getLogger(__name__)
+
+
+async def async_build_agent_prompt_with_ai(
+    hass: HomeAssistant,
+    agents: list[dict]
+) -> str:
+    """Build router prompt using Jarvis Prompt Generator AI.
+
+    Falls back to static prompt if AI generation fails.
+    """
+    from .config_flow import build_agent_prompt  # Import fallback
+
+    # Prepare agent data as JSON for Prompt Generator
+    agent_data = []
+    for agent in agents:
+        agent_data.append({
+            "name": agent[CONF_AGENT_NAME],
+            "description": agent[CONF_AGENT_DESCRIPTION],
+            "keywords": agent.get(CONF_AGENT_KEYWORDS, "")
+        })
+
+    agent_json = json.dumps(agent_data, indent=2)
+
+    # Create request for Prompt Generator
+    prompt_request = f"""Generate a router system prompt for a multi-agent routing system.
+
+The router must classify user requests and respond with ONLY "ROUTE: [Agent Name]" format.
+
+Available agents:
+{agent_json}
+
+Requirements:
+1. Use ONLY "ROUTE: [exact agent name]" format (e.g., "ROUTE: Jarvis Think")
+2. Include 5-8 concrete examples showing routing decisions
+3. Examples must use the ACTUAL agent names from the list above
+4. Never use placeholders like [AgentName] - always use real names
+5. Add explicit routing rules based on agent capabilities
+6. Emphasize the router should NEVER answer questions itself
+7. Keep prompt concise and deterministic
+
+Generate ONLY the router prompt text, nothing else."""
+
+    try:
+        _LOGGER.info("Calling Jarvis Prompt Generator AI to create router prompt...")
+
+        # Call the Prompt Generator AI
+        response = await hass.services.async_call(
+            "conversation",
+            "process",
+            {
+                "agent_id": "conversation.jarvis_prompt_generator",
+                "text": prompt_request,
+            },
+            blocking=True,
+            return_response=True,
+        )
+
+        # Extract generated prompt from response
+        if hasattr(response, 'response') and hasattr(response.response, 'speech'):
+            speech_obj = response.response.speech
+            if hasattr(speech_obj, 'plain') and hasattr(speech_obj.plain, 'speech'):
+                generated_prompt = speech_obj.plain.speech
+                if generated_prompt and generated_prompt.strip():
+                    _LOGGER.info("✓ Successfully generated router prompt using AI (%d chars)",
+                                len(generated_prompt))
+                    return generated_prompt.strip()
+
+        _LOGGER.warning("AI response had no speech content, using fallback")
+
+    except Exception as e:
+        _LOGGER.warning("Failed to generate prompt with AI: %s. Using fallback.", e)
+
+    # Fallback to static prompt
+    _LOGGER.info("Using static fallback prompt")
+    return build_agent_prompt(agents)
 
 
 async def async_update_agent_prompt(
@@ -181,7 +260,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Extract configuration
     agent_id = entry.data[CONF_AGENT]
     agents = entry.data[CONF_AGENTS]
-    agent_prompt = entry.data[CONF_AGENT_PROMPT]
+
+    # Try to get existing prompt, or generate with AI
+    stored_prompt = entry.data.get(CONF_AGENT_PROMPT)
+    if stored_prompt:
+        agent_prompt = stored_prompt
+        _LOGGER.info("Using stored router prompt")
+    else:
+        # Generate new prompt using AI
+        _LOGGER.info("No stored prompt found, generating with AI...")
+        agent_prompt = await async_build_agent_prompt_with_ai(hass, agents)
+
+        # Update config entry with generated prompt
+        hass.config_entries.async_update_entry(
+            entry,
+            data={**entry.data, CONF_AGENT_PROMPT: agent_prompt}
+        )
 
     _LOGGER.info(
         "Setting up Multi-Agent Router with agent: %s, %d specialized agents",
@@ -218,6 +312,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     conversation.async_set_agent(hass, entry, agent)
+
+    # Register prompt regeneration service
+    async def handle_regenerate_prompt(call):
+        """Regenerate router prompt using AI."""
+        _LOGGER.info("Regenerating router prompt via service call...")
+
+        agents = entry.data[CONF_AGENTS]
+        new_prompt = await async_build_agent_prompt_with_ai(hass, agents)
+
+        # Update config entry
+        hass.config_entries.async_update_entry(
+            entry,
+            data={**entry.data, CONF_AGENT_PROMPT: new_prompt}
+        )
+
+        _LOGGER.info("✓ Router prompt regenerated, reloading integration...")
+
+        # Reload integration to apply new prompt
+        await hass.config_entries.async_reload(entry.entry_id)
+
+    # Register service (only once)
+    if not hass.services.has_service(DOMAIN, "regenerate_prompt"):
+        hass.services.async_register(
+            DOMAIN,
+            "regenerate_prompt",
+            handle_regenerate_prompt
+        )
+        _LOGGER.info("Registered multi_agent_router.regenerate_prompt service")
 
     # Set up update listener for config changes
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
