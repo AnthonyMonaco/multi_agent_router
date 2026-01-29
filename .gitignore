@@ -1,0 +1,15 @@
+.DS_Store
+__pycache__/
+*.pyc
+
+.storage/
+.cloud/
+
+*.log
+*.db
+*.sqlite
+home-assistant_v2.db*
+node_modules/
+
+.vscode/
+.idea/
