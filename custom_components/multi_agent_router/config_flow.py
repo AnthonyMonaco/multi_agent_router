@@ -62,13 +62,15 @@ Available agents:
 {agent_list_text}
 
 RESPONSE FORMAT:
-- If you can handle it directly: Execute the action and respond naturally (or silently)
-- If you need to route: Respond with ONLY the agent name prefixed with "ROUTE:"
+- If handling directly: Execute via Home Assistant API and respond with "OK" or "" (empty)
+- If routing: Respond with ONLY "ROUTE: [AgentName]"
 
 Examples:
-"turn on kitchen lights" → [Execute directly, respond naturally or silently]
-"what's the weather like" → ROUTE: [AgentName]
-"tell me about my energy usage" → ROUTE: [AgentName]"""
+"turn on kitchen lights" → [Execute directly via API, respond "OK"]
+"what's the weather in Arvada" → ROUTE: Jarvis Think
+"tell me about my energy usage" → ROUTE: Jarvis Think
+"are the doors locked" → ROUTE: Jarvis Think
+"start the dishwasher" → [Execute directly via API, respond "OK"]"""
 
 
 class MultiAgentRouterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
