@@ -150,52 +150,80 @@ async def async_update_agent_prompt(
             # Extract the agent name from the agent_id
             agent_name_part = agent_id.replace("conversation.", "")
 
+            # Debug: log what type subentries actually is
+            _LOGGER.debug(
+                "config_entry.subentries type: %s, length: %d",
+                type(config_entry.subentries),
+                len(config_entry.subentries) if config_entry.subentries else 0
+            )
+
             # Search for matching subentry
-            for subentry in config_entry.subentries:
-                try:
-                    # ConfigEntrySubEntry is an object with attributes, not a dict
-                    # Access attributes safely using getattr()
-                    subentry_type = getattr(subentry, "subentry_type", None)
+            if config_entry.subentries:
+                for idx, subentry in enumerate(config_entry.subentries):
+                    try:
+                        # Debug: log the type of each subentry
+                        _LOGGER.debug(
+                            "Subentry %d type: %s, value: %s",
+                            idx,
+                            type(subentry).__name__,
+                            str(subentry)[:100]  # Limit length for safety
+                        )
 
-                    if subentry_type == "conversation":
-                        # Match by title (case-insensitive, with underscores converted to spaces)
-                        subentry_title = getattr(subentry, "title", "")
-                        normalized_title = subentry_title.lower().replace(" ", "_")
-
-                        if normalized_title == agent_name_part:
-                            # Found the matching subentry - convert to dict for downstream functions
+                        # Handle different possible types
+                        if isinstance(subentry, str):
+                            # If subentry is a string (ID), skip it - we can't process it
+                            _LOGGER.debug("Skipping string subentry: %s", subentry)
+                            continue
+                        elif isinstance(subentry, dict):
+                            # If it's already a dict, use it directly
+                            subentry_type = subentry.get("subentry_type")
+                            subentry_title = subentry.get("title", "")
+                            subentry_id = subentry.get("subentry_id")
+                            subentry_data = subentry.get("data", {})
+                        else:
+                            # If it's an object (ConfigEntrySubEntry), access attributes
+                            subentry_type = getattr(subentry, "subentry_type", None)
+                            subentry_title = getattr(subentry, "title", "")
                             subentry_id = getattr(subentry, "subentry_id", None)
                             subentry_data = getattr(subentry, "data", {})
 
-                            subentry_dict = {
-                                "subentry_type": subentry_type,
-                                "title": subentry_title,
-                                "subentry_id": subentry_id,
-                                "data": subentry_data
-                            }
+                        if subentry_type == "conversation":
+                            # Match by title (case-insensitive, with underscores converted to spaces)
+                            normalized_title = subentry_title.lower().replace(" ", "_")
 
-                            _LOGGER.debug(
-                                "Found matching subentry '%s' (id: %s) for agent %s",
-                                subentry_title,
-                                subentry_id,
-                                agent_id
-                            )
-                            return await async_update_subentry_prompt(
-                                hass, config_entry, subentry, subentry_dict, prompt
-                            )
+                            if normalized_title == agent_name_part:
+                                # Found the matching subentry - convert to dict for downstream functions
+                                subentry_dict = {
+                                    "subentry_type": subentry_type,
+                                    "title": subentry_title,
+                                    "subentry_id": subentry_id,
+                                    "data": subentry_data
+                                }
 
-                except (AttributeError, TypeError) as e:
-                    _LOGGER.debug(
-                        "Skipping invalid subentry during iteration: %s",
-                        str(e)
-                    )
-                    continue
+                                _LOGGER.debug(
+                                    "Found matching subentry '%s' (id: %s) for agent %s",
+                                    subentry_title,
+                                    subentry_id,
+                                    agent_id
+                                )
+                                return await async_update_subentry_prompt(
+                                    hass, config_entry, subentry, subentry_dict, prompt
+                                )
+
+                    except Exception as e:
+                        _LOGGER.warning(
+                            "Error processing subentry %d: %s",
+                            idx,
+                            str(e),
+                            exc_info=True
+                        )
+                        continue
 
             _LOGGER.warning(
                 "Could not find subentry for agent %s in config entry %s (has %d subentries)",
                 agent_id,
                 config_entry_id,
-                len(config_entry.subentries)
+                len(config_entry.subentries) if config_entry.subentries else 0
             )
             # Fall through to try updating parent entry as fallback
 
