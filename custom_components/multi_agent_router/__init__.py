@@ -152,21 +152,44 @@ async def async_update_agent_prompt(
 
             # Search for matching subentry
             for subentry in config_entry.subentries:
-                if subentry.get("subentry_type") == "conversation":
-                    # Match by title (case-insensitive, with underscores converted to spaces)
-                    subentry_title = subentry.get("title", "")
-                    normalized_title = subentry_title.lower().replace(" ", "_")
-                    if normalized_title == agent_name_part:
-                        # Found the matching subentry - update its prompt
-                        _LOGGER.debug(
-                            "Found matching subentry '%s' (id: %s) for agent %s",
-                            subentry_title,
-                            subentry.get("subentry_id"),
-                            agent_id
-                        )
-                        return await async_update_subentry_prompt(
-                            hass, config_entry, subentry, prompt
-                        )
+                try:
+                    # ConfigEntrySubEntry is an object with attributes, not a dict
+                    # Access attributes safely using getattr()
+                    subentry_type = getattr(subentry, "subentry_type", None)
+
+                    if subentry_type == "conversation":
+                        # Match by title (case-insensitive, with underscores converted to spaces)
+                        subentry_title = getattr(subentry, "title", "")
+                        normalized_title = subentry_title.lower().replace(" ", "_")
+
+                        if normalized_title == agent_name_part:
+                            # Found the matching subentry - convert to dict for downstream functions
+                            subentry_id = getattr(subentry, "subentry_id", None)
+                            subentry_data = getattr(subentry, "data", {})
+
+                            subentry_dict = {
+                                "subentry_type": subentry_type,
+                                "title": subentry_title,
+                                "subentry_id": subentry_id,
+                                "data": subentry_data
+                            }
+
+                            _LOGGER.debug(
+                                "Found matching subentry '%s' (id: %s) for agent %s",
+                                subentry_title,
+                                subentry_id,
+                                agent_id
+                            )
+                            return await async_update_subentry_prompt(
+                                hass, config_entry, subentry, subentry_dict, prompt
+                            )
+
+                except (AttributeError, TypeError) as e:
+                    _LOGGER.debug(
+                        "Skipping invalid subentry during iteration: %s",
+                        str(e)
+                    )
+                    continue
 
             _LOGGER.warning(
                 "Could not find subentry for agent %s in config entry %s (has %d subentries)",
@@ -205,26 +228,39 @@ async def async_update_agent_prompt(
 async def async_update_subentry_prompt(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    subentry: dict,
+    subentry_obj,
+    subentry_dict: dict,
     prompt: str
 ) -> bool:
     """Update a subentry's prompt in the OpenAI Conversation config entry.
+
+    Args:
+        hass: HomeAssistant instance
+        config_entry: The parent config entry
+        subentry_obj: The actual ConfigEntrySubEntry object from config_entry.subentries
+        subentry_dict: Dictionary representation of the subentry for easy access
+        prompt: The new prompt to set
 
     Returns True if successful, False otherwise.
     """
     try:
         # Create a copy of the subentry data with updated prompt
-        updated_subentry_data = dict(subentry.get("data", {}))
+        updated_subentry_data = dict(subentry_dict.get("data", {}))
         updated_subentry_data["prompt"] = prompt
 
-        # Create updated subentry
-        updated_subentry = dict(subentry)
+        # Create updated subentry dict
+        updated_subentry = dict(subentry_dict)
         updated_subentry["data"] = updated_subentry_data
 
         # Find and replace the subentry in the list
         updated_subentries = []
+        subentry_id_to_match = subentry_dict.get("subentry_id")
+
         for existing_subentry in config_entry.subentries:
-            if existing_subentry.get("subentry_id") == subentry.get("subentry_id"):
+            # Access the subentry_id attribute from the object
+            existing_id = getattr(existing_subentry, "subentry_id", None)
+
+            if existing_id == subentry_id_to_match:
                 updated_subentries.append(updated_subentry)
             else:
                 updated_subentries.append(existing_subentry)
@@ -237,8 +273,8 @@ async def async_update_subentry_prompt(
 
         _LOGGER.info(
             "Successfully updated subentry prompt for '%s' (subentry_id: %s)",
-            subentry.get("title"),
-            subentry.get("subentry_id")
+            subentry_dict.get("title"),
+            subentry_dict.get("subentry_id")
         )
         return True
 

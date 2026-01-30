@@ -1,0 +1,4 @@
+regenerate_prompt:
+  name: Regenerate Prompt
+  description: Regenerate the router system prompt using AI and reload the integration
+  fields: {}
