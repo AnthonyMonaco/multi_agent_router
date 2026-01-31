@@ -13,6 +13,10 @@ from .const import (
     CONF_AGENT_NAME,
     CONF_AGENT_DESCRIPTION,
     CONF_AGENT_KEYWORDS,
+    CONF_PROMPT_GENERATOR_AGENT,
+    CONF_PROMPT_GENERATOR_PROMPT,
+    DEFAULT_PROMPT_GENERATOR_AGENT,
+    DEFAULT_PROMPT_GENERATOR_PROMPT,
     DOMAIN,
 )
 from .conversation_agent import MultiAgentRouter
@@ -22,13 +26,27 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_build_agent_prompt_with_ai(
     hass: HomeAssistant,
-    agents: list[dict]
+    agents: list[dict],
+    prompt_generator_agent: str = None,
+    prompt_generator_prompt: str = None
 ) -> str:
-    """Build router prompt using Jarvis Prompt Generator AI.
+    """Build router prompt using configured Prompt Generator AI.
 
     Falls back to static prompt if AI generation fails.
+
+    Args:
+        hass: HomeAssistant instance
+        agents: List of agent configurations
+        prompt_generator_agent: Agent ID to use for generating prompts
+        prompt_generator_prompt: Template prompt for the generator agent
     """
     from .config_flow import build_agent_prompt  # Import fallback
+
+    # Use defaults if not provided
+    if not prompt_generator_agent:
+        prompt_generator_agent = DEFAULT_PROMPT_GENERATOR_AGENT
+    if not prompt_generator_prompt:
+        prompt_generator_prompt = DEFAULT_PROMPT_GENERATOR_PROMPT
 
     # Prepare agent data as JSON for Prompt Generator
     agent_data = []
@@ -41,34 +59,18 @@ async def async_build_agent_prompt_with_ai(
 
     agent_json = json.dumps(agent_data, indent=2)
 
-    # Create request for Prompt Generator
-    prompt_request = f"""Generate a router system prompt for a multi-agent routing system.
-
-The router must classify user requests and respond with ONLY "ROUTE: [Agent Name]" format.
-
-Available agents:
-{agent_json}
-
-Requirements:
-1. Use ONLY "ROUTE: [exact agent name]" format (e.g., "ROUTE: Jarvis Think")
-2. Include 5-8 concrete examples showing routing decisions
-3. Examples must use the ACTUAL agent names from the list above
-4. Never use placeholders like [AgentName] - always use real names
-5. Add explicit routing rules based on agent capabilities
-6. Emphasize the router should NEVER answer questions itself
-7. Keep prompt concise and deterministic
-
-Generate ONLY the router prompt text, nothing else."""
+    # Create request for Prompt Generator by replacing {agent_json} placeholder
+    prompt_request = prompt_generator_prompt.replace("{agent_json}", agent_json)
 
     try:
-        _LOGGER.info("Calling Jarvis Prompt Generator AI to create router prompt...")
+        _LOGGER.info("Calling Prompt Generator AI (%s) to create router prompt...", prompt_generator_agent)
 
         # Call the Prompt Generator AI
         response = await hass.services.async_call(
             "conversation",
             "process",
             {
-                "agent_id": "conversation.jarvis_prompt_generator",
+                "agent_id": prompt_generator_agent,
                 "text": prompt_request,
             },
             blocking=True,
@@ -145,40 +147,14 @@ async def async_update_agent_prompt(
             )
             return False
 
-        # Check if this is a subentry agent (format: conversation.{name})
-        if agent_id.startswith("conversation."):
-            # Extract the agent name from the agent_id
-            agent_name_part = agent_id.replace("conversation.", "")
+        _LOGGER.debug(
+            "Updating prompt for agent %s (config entry %s, title: '%s')",
+            agent_id,
+            config_entry_id,
+            config_entry.title
+        )
 
-            # Search for matching subentry
-            # Note: config_entry.subentries returns ConfigEntry objects, not dicts
-            for subentry in config_entry.subentries:
-                # Check if this subentry is for conversation domain
-                if subentry.domain == "conversation":
-                    # Match by title (case-insensitive, with underscores converted to spaces)
-                    subentry_title = subentry.title or ""
-                    normalized_title = subentry_title.lower().replace(" ", "_")
-                    if normalized_title == agent_name_part:
-                        # Found the matching subentry - update its prompt
-                        _LOGGER.debug(
-                            "Found matching subentry '%s' (id: %s) for agent %s",
-                            subentry_title,
-                            subentry.entry_id,
-                            agent_id
-                        )
-                        return await async_update_subentry_prompt(
-                            hass, config_entry, subentry, prompt
-                        )
-
-            _LOGGER.warning(
-                "Could not find subentry for agent %s in config entry %s (has %d subentries)",
-                agent_id,
-                config_entry_id,
-                len(config_entry.subentries)
-            )
-            # Fall through to try updating parent entry as fallback
-
-        # Update the prompt in the config entry options (parent entry or fallback)
+        # Update the prompt in the config entry options
         # OpenAI Conversation stores the prompt in options
         new_options = dict(config_entry.options)
         new_options["prompt"] = prompt
@@ -189,8 +165,9 @@ async def async_update_agent_prompt(
         )
 
         _LOGGER.info(
-            "Successfully updated agent %s system prompt (parent entry)",
-            agent_id
+            "Successfully updated agent %s system prompt in config entry %s",
+            agent_id,
+            config_entry_id
         )
         return True
 
@@ -207,29 +184,53 @@ async def async_update_agent_prompt(
 async def async_update_subentry_prompt(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
-    subentry: ConfigEntry,
+    subentry_obj,
+    subentry_dict: dict,
     prompt: str
 ) -> bool:
     """Update a subentry's prompt in the OpenAI Conversation config entry.
 
+    Args:
+        hass: HomeAssistant instance
+        config_entry: The parent config entry
+        subentry_obj: The actual ConfigEntrySubEntry object from config_entry.subentries
+        subentry_dict: Dictionary representation of the subentry for easy access
+        prompt: The new prompt to set
+
     Returns True if successful, False otherwise.
     """
     try:
-        # Update the subentry's options with the new prompt
-        # OpenAI Conversation stores the prompt in options
-        new_options = dict(subentry.options)
-        new_options["prompt"] = prompt
+        # Create a copy of the subentry data with updated prompt
+        updated_subentry_data = dict(subentry_dict.get("data", {}))
+        updated_subentry_data["prompt"] = prompt
 
-        # Update the subentry config entry
+        # Create updated subentry dict
+        updated_subentry = dict(subentry_dict)
+        updated_subentry["data"] = updated_subentry_data
+
+        # Find and replace the subentry in the list
+        updated_subentries = []
+        subentry_id_to_match = subentry_dict.get("subentry_id")
+
+        for existing_subentry in config_entry.subentries:
+            # Access the subentry_id attribute from the object
+            existing_id = getattr(existing_subentry, "subentry_id", None)
+
+            if existing_id == subentry_id_to_match:
+                updated_subentries.append(updated_subentry)
+            else:
+                updated_subentries.append(existing_subentry)
+
+        # Update the config entry with new subentries
         hass.config_entries.async_update_entry(
-            subentry,
-            options=new_options
+            config_entry,
+            subentries=updated_subentries
         )
 
         _LOGGER.info(
-            "Successfully updated subentry prompt for '%s' (entry_id: %s)",
-            subentry.title,
-            subentry.entry_id
+            "Successfully updated subentry prompt for '%s' (subentry_id: %s)",
+            subentry_dict.get("title"),
+            subentry_dict.get("subentry_id")
         )
         return True
 
@@ -244,138 +245,125 @@ async def async_update_subentry_prompt(
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Multi-Agent Router from a config entry."""
-    try:
-        # Store config
-        hass.data.setdefault(DOMAIN, {})
-        hass.data[DOMAIN][entry.entry_id] = entry
+    # Store config
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN][entry.entry_id] = entry
 
-        # Extract and validate configuration
-        agent_id = entry.data.get(CONF_AGENT)
-        agents = entry.data.get(CONF_AGENTS)
+    # Extract configuration
+    agent_id = entry.data[CONF_AGENT]
+    agents = entry.data[CONF_AGENTS]
+    prompt_generator_agent = entry.data.get(
+        CONF_PROMPT_GENERATOR_AGENT,
+        DEFAULT_PROMPT_GENERATOR_AGENT
+    )
+    prompt_generator_prompt = entry.data.get(
+        CONF_PROMPT_GENERATOR_PROMPT,
+        DEFAULT_PROMPT_GENERATOR_PROMPT
+    )
 
-        if not agent_id:
-            _LOGGER.error(
-                "Config entry %s missing router agent (CONF_AGENT). "
-                "Please remove and recreate the integration.",
-                entry.entry_id
-            )
-            return False
-
-        if not agents:
-            _LOGGER.error(
-                "Config entry %s missing specialized agents (CONF_AGENTS). "
-                "Please remove and recreate the integration.",
-                entry.entry_id
-            )
-            return False
-
-        if not isinstance(agents, list):
-            _LOGGER.error(
-                "Config entry %s has invalid agents format (expected list, got %s)",
-                entry.entry_id,
-                type(agents)
-            )
-            return False
-
-        # Try to get existing prompt, or generate with AI
-        stored_prompt = entry.data.get(CONF_AGENT_PROMPT)
-        if stored_prompt:
-            agent_prompt = stored_prompt
-            _LOGGER.info("Using stored router prompt")
-        else:
-            # Generate new prompt using AI
-            _LOGGER.info("No stored prompt found, generating with AI...")
-            agent_prompt = await async_build_agent_prompt_with_ai(hass, agents)
-
-            # Update config entry with generated prompt
-            hass.config_entries.async_update_entry(
-                entry,
-                data={**entry.data, CONF_AGENT_PROMPT: agent_prompt}
-            )
-
-        _LOGGER.info(
-            "Setting up Multi-Agent Router with agent: %s, %d specialized agents",
-            agent_id,
-            len(agents)
-        )
-        _LOGGER.debug("Agent ID: %s", agent_id)
-        _LOGGER.debug("Agent prompt (first 200 chars):\n%s...", agent_prompt[:200])
-
-        # Attempt to auto-update the agent's system prompt
-        update_success = await async_update_agent_prompt(
+    # Try to get existing prompt, or generate with AI
+    stored_prompt = entry.data.get(CONF_AGENT_PROMPT)
+    if stored_prompt:
+        agent_prompt = stored_prompt
+        _LOGGER.info("Using stored router prompt")
+    else:
+        # Generate new prompt using AI
+        _LOGGER.info("No stored prompt found, generating with AI...")
+        agent_prompt = await async_build_agent_prompt_with_ai(
             hass,
+            agents,
+            prompt_generator_agent,
+            prompt_generator_prompt
+        )
+
+        # Update config entry with generated prompt
+        hass.config_entries.async_update_entry(
+            entry,
+            data={**entry.data, CONF_AGENT_PROMPT: agent_prompt}
+        )
+
+    _LOGGER.info(
+        "Setting up Multi-Agent Router with agent: %s, %d specialized agents",
+        agent_id,
+        len(agents)
+    )
+    _LOGGER.debug("Agent ID: %s", agent_id)
+    _LOGGER.debug("Agent prompt (first 200 chars):\n%s...", agent_prompt[:200])
+
+    # Attempt to auto-update the agent's system prompt
+    update_success = await async_update_agent_prompt(
+        hass,
+        agent_id,
+        agent_prompt
+    )
+
+    if not update_success:
+        _LOGGER.warning(
+            "Could not automatically update agent system prompt. "
+            "Please manually set the system prompt for %s to:\n%s",
             agent_id,
             agent_prompt
         )
 
-        if not update_success:
-            _LOGGER.warning(
-                "Could not automatically update agent system prompt. "
-                "Please manually set the system prompt for %s to:\n%s",
-                agent_id,
-                agent_prompt
-            )
+    # Create and register conversation agent
+    from homeassistant.components import conversation
 
-        # Create and register conversation agent
-        from homeassistant.components import conversation
+    agent = MultiAgentRouter(
+        hass=hass,
+        entry=entry,
+        agent_id=agent_id,
+        agent_prompt=agent_prompt,
+        agents=agents,
+    )
 
-        agent = MultiAgentRouter(
-            hass=hass,
-            entry=entry,
-            agent_id=agent_id,
-            agent_prompt=agent_prompt,
-            agents=agents,
+    conversation.async_set_agent(hass, entry, agent)
+
+    # Register prompt regeneration service
+    async def handle_regenerate_prompt(call):
+        """Regenerate router prompt using AI."""
+        _LOGGER.info("Regenerating router prompt via service call...")
+
+        agents = entry.data[CONF_AGENTS]
+        prompt_gen_agent = entry.data.get(
+            CONF_PROMPT_GENERATOR_AGENT,
+            DEFAULT_PROMPT_GENERATOR_AGENT
+        )
+        prompt_gen_prompt = entry.data.get(
+            CONF_PROMPT_GENERATOR_PROMPT,
+            DEFAULT_PROMPT_GENERATOR_PROMPT
         )
 
-        conversation.async_set_agent(hass, entry, agent)
-
-        # Register prompt regeneration service
-        async def handle_regenerate_prompt(call):
-            """Regenerate router prompt using AI."""
-            _LOGGER.info("Regenerating router prompt via service call...")
-
-            try:
-                agents = entry.data.get(CONF_AGENTS)
-                if not agents:
-                    _LOGGER.error("Cannot regenerate prompt: no agents configured")
-                    return
-
-                new_prompt = await async_build_agent_prompt_with_ai(hass, agents)
-
-                # Update config entry
-                hass.config_entries.async_update_entry(
-                    entry,
-                    data={**entry.data, CONF_AGENT_PROMPT: new_prompt}
-                )
-
-                _LOGGER.info("✓ Router prompt regenerated, reloading integration...")
-
-                # Reload integration to apply new prompt
-                await hass.config_entries.async_reload(entry.entry_id)
-            except Exception as err:
-                _LOGGER.error("Failed to regenerate prompt: %s", err, exc_info=True)
-
-        # Register service (only once)
-        if not hass.services.has_service(DOMAIN, "regenerate_prompt"):
-            hass.services.async_register(
-                DOMAIN,
-                "regenerate_prompt",
-                handle_regenerate_prompt
-            )
-            _LOGGER.info("Registered multi_agent_router.regenerate_prompt service")
-
-        # Set up update listener for config changes
-        entry.async_on_unload(entry.add_update_listener(async_reload_entry))
-
-        return True
-
-    except Exception as err:
-        _LOGGER.error(
-            "Failed to set up Multi-Agent Router: %s",
-            err,
-            exc_info=True
+        new_prompt = await async_build_agent_prompt_with_ai(
+            hass,
+            agents,
+            prompt_gen_agent,
+            prompt_gen_prompt
         )
-        return False
+
+        # Update config entry
+        hass.config_entries.async_update_entry(
+            entry,
+            data={**entry.data, CONF_AGENT_PROMPT: new_prompt}
+        )
+
+        _LOGGER.info("✓ Router prompt regenerated, reloading integration...")
+
+        # Reload integration to apply new prompt
+        await hass.config_entries.async_reload(entry.entry_id)
+
+    # Register service (only once)
+    if not hass.services.has_service(DOMAIN, "regenerate_prompt"):
+        hass.services.async_register(
+            DOMAIN,
+            "regenerate_prompt",
+            handle_regenerate_prompt
+        )
+        _LOGGER.info("Registered multi_agent_router.regenerate_prompt service")
+
+    # Set up update listener for config changes
+    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
+
+    return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

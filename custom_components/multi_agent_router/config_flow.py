@@ -26,6 +26,10 @@ from .const import (
     CONF_AGENT_KEYWORDS,
     CONF_AGENT_NAME,
     CONF_AGENT_PROMPT,
+    CONF_PROMPT_GENERATOR_AGENT,
+    CONF_PROMPT_GENERATOR_PROMPT,
+    DEFAULT_PROMPT_GENERATOR_AGENT,
+    DEFAULT_PROMPT_GENERATOR_PROMPT,
     DOMAIN,
 )
 
@@ -105,6 +109,8 @@ class MultiAgentRouterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._agent: str | None = None
         self._agents: list[dict] = []
         self._agent_prompt: str | None = None
+        self._prompt_generator_agent: str | None = None
+        self._prompt_generator_prompt: str | None = None
         self._editing_index: int | None = None
 
     async def async_step_user(
@@ -146,7 +152,7 @@ class MultiAgentRouterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 f"- {agent[CONF_AGENT_NAME]} ({agent[CONF_AGENT_ID]})"
                 for agent in self._agents
             ])
-            description = f"Currently configured agents:\n{agent_list}\n\nAdd more agents or finish setup."
+            description = f"Currently configured agents:\n{agent_list}\n\nAdd more agents, configure prompt generator, or finish setup."
         else:
             description = "No agents configured yet. Add at least one agent."
 
@@ -154,6 +160,7 @@ class MultiAgentRouterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="agents",
             menu_options={
                 "add_agent": "Add Custom Agent",
+                "configure_prompt_generator": "Configure Prompt Generator",
                 "finish": "Finish Setup"
             },
             description_placeholders={"agents_list": agent_list}
@@ -209,6 +216,49 @@ class MultiAgentRouterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_configure_prompt_generator(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Configure the prompt generator agent and its prompt."""
+        if user_input is not None:
+            # Save prompt generator configuration
+            self._prompt_generator_agent = user_input[CONF_PROMPT_GENERATOR_AGENT]
+            self._prompt_generator_prompt = user_input[CONF_PROMPT_GENERATOR_PROMPT]
+            _LOGGER.debug(f"Configured prompt generator: {self._prompt_generator_agent}")
+            return await self.async_step_agents()
+
+        # Set defaults if not already set
+        if not self._prompt_generator_agent:
+            self._prompt_generator_agent = DEFAULT_PROMPT_GENERATOR_AGENT
+        if not self._prompt_generator_prompt:
+            self._prompt_generator_prompt = DEFAULT_PROMPT_GENERATOR_PROMPT
+
+        schema = vol.Schema({
+            vol.Required(
+                CONF_PROMPT_GENERATOR_AGENT,
+                description={"suggested_value": self._prompt_generator_agent}
+            ): ConversationAgentSelector(
+                ConversationAgentSelectorConfig(language="en")
+            ),
+            vol.Required(
+                CONF_PROMPT_GENERATOR_PROMPT,
+                description={"suggested_value": self._prompt_generator_prompt}
+            ): TextSelector(
+                TextSelectorConfig(
+                    type=TextSelectorType.TEXT,
+                    multiline=True,
+                )
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="configure_prompt_generator",
+            data_schema=schema,
+            description_placeholders={
+                "info": "Configure which agent generates router prompts and the prompt it uses. The {agent_json} placeholder will be replaced with your agent list."
+            }
+        )
+
     async def async_step_finish(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
@@ -219,12 +269,21 @@ class MultiAgentRouterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             # Save the prompt and create entry
             self._agent_prompt = user_input[CONF_AGENT_PROMPT]
+
+            # Set defaults for prompt generator if not configured
+            if not self._prompt_generator_agent:
+                self._prompt_generator_agent = DEFAULT_PROMPT_GENERATOR_AGENT
+            if not self._prompt_generator_prompt:
+                self._prompt_generator_prompt = DEFAULT_PROMPT_GENERATOR_PROMPT
+
             return self.async_create_entry(
                 title="Multi-Agent Router",
                 data={
                     CONF_AGENT: self._agent,
                     CONF_AGENTS: self._agents,
                     CONF_AGENT_PROMPT: self._agent_prompt,
+                    CONF_PROMPT_GENERATOR_AGENT: self._prompt_generator_agent,
+                    CONF_PROMPT_GENERATOR_PROMPT: self._prompt_generator_prompt,
                 },
             )
 
@@ -267,81 +326,38 @@ class MultiAgentRouterOptionsFlow(config_entries.OptionsFlow):
         self._agent: str | None = None
         self._agents: list[dict] = []
         self._agent_prompt: str | None = None
+        self._prompt_generator_agent: str | None = None
+        self._prompt_generator_prompt: str | None = None
         self._editing_index: int | None = None
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Manage options."""
-        try:
-            # Initialize with current config using safe access
-            self._agent = self.config_entry.data.get(CONF_AGENT, "homeassistant")
-            self._agents = list(self.config_entry.data.get(CONF_AGENTS, []))
-
-            # Validate we have required data
-            if not self._agent:
-                _LOGGER.error("Config entry missing router agent (CONF_AGENT)")
-                return self.async_abort(reason="config_error")
-
-            if not self._agents:
-                _LOGGER.error("Config entry missing specialized agents (CONF_AGENTS)")
-                return self.async_abort(reason="no_agents")
-
-            # Validate agent structure
-            for i, agent in enumerate(self._agents):
-                if not isinstance(agent, dict):
-                    _LOGGER.error("Agent %d is not a dictionary: %s", i, type(agent))
-                    return self.async_abort(reason="config_error")
-                if CONF_AGENT_NAME not in agent or CONF_AGENT_ID not in agent:
-                    _LOGGER.error("Agent %d missing required fields: %s", i, agent)
-                    return self.async_abort(reason="config_error")
-
-            self._agent_prompt = self.config_entry.data.get(
-                CONF_AGENT_PROMPT,
-                build_agent_prompt(self._agents)
-            )
-
-        except Exception as err:
-            _LOGGER.error(
-                "Failed to initialize options flow for config entry %s: %s",
-                self.config_entry.entry_id,
-                err,
-                exc_info=True
-            )
-            return self.async_abort(reason="config_error")
+        # Initialize with current config
+        self._agent = self.config_entry.data[CONF_AGENT]
+        self._agents = list(self.config_entry.data[CONF_AGENTS])
+        self._agent_prompt = self.config_entry.data.get(
+            CONF_AGENT_PROMPT,
+            build_agent_prompt(self._agents)  # Fallback for old configs
+        )
+        self._prompt_generator_agent = self.config_entry.data.get(
+            CONF_PROMPT_GENERATOR_AGENT,
+            DEFAULT_PROMPT_GENERATOR_AGENT
+        )
+        self._prompt_generator_prompt = self.config_entry.data.get(
+            CONF_PROMPT_GENERATOR_PROMPT,
+            DEFAULT_PROMPT_GENERATOR_PROMPT
+        )
 
         return self.async_show_menu(
             step_id="init",
             menu_options={
-                "edit_router": "Edit Router Agent",
-                "edit_prompt": "Edit Agent Prompt",
+                "edit_prompt": "Edit Router Prompt",
+                "edit_prompt_generator": "Edit Prompt Generator",
                 "manage_agents": "Manage Agents",
-                "save": "Save & Exit"
+                "finish": "Save & Exit"
             },
-        )
-
-    async def async_step_edit_router(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Edit the router agent."""
-        if user_input is not None:
-            # Save the updated router agent (don't update entry yet)
-            self._agent = user_input[CONF_AGENT]
-            return await self.async_step_init()
-
-        # Show current router agent for editing
-        schema = vol.Schema({
-            vol.Required(
-                CONF_AGENT,
-                default=self._agent
-            ): ConversationAgentSelector(
-                ConversationAgentSelectorConfig(language="en")
-            ),
-        })
-
-        return self.async_show_form(
-            step_id="edit_router",
-            data_schema=schema,
         )
 
     async def async_step_edit_prompt(
@@ -371,6 +387,43 @@ class MultiAgentRouterOptionsFlow(config_entries.OptionsFlow):
             data_schema=schema,
         )
 
+    async def async_step_edit_prompt_generator(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Edit the prompt generator configuration."""
+        if user_input is not None:
+            # Save the updated prompt generator configuration (don't update entry yet)
+            self._prompt_generator_agent = user_input[CONF_PROMPT_GENERATOR_AGENT]
+            self._prompt_generator_prompt = user_input[CONF_PROMPT_GENERATOR_PROMPT]
+            return await self.async_step_init()
+
+        # Show current prompt generator config for editing
+        schema = vol.Schema({
+            vol.Required(
+                CONF_PROMPT_GENERATOR_AGENT,
+                default=self._prompt_generator_agent
+            ): ConversationAgentSelector(
+                ConversationAgentSelectorConfig(language="en")
+            ),
+            vol.Required(
+                CONF_PROMPT_GENERATOR_PROMPT,
+                default=self._prompt_generator_prompt
+            ): TextSelector(
+                TextSelectorConfig(
+                    type=TextSelectorType.TEXT,
+                    multiline=True,
+                )
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="edit_prompt_generator",
+            data_schema=schema,
+            description_placeholders={
+                "info": "Configure which agent generates router prompts and the prompt it uses. The {agent_json} placeholder will be replaced with your agent list."
+            }
+        )
+
     async def async_step_manage_agents(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
@@ -386,20 +439,14 @@ class MultiAgentRouterOptionsFlow(config_entries.OptionsFlow):
         else:
             description = "No agents configured yet."
 
-        # Build menu options based on whether agents exist
-        menu_options = {
-            "add_agent": "Add Agent",
-            "back": "Back to Options"
-        }
-
-        # Only show edit/remove if we have agents
-        if self._agents:
-            menu_options["edit_agent"] = "Edit Agent"
-            menu_options["remove_agent"] = "Remove Agent"
-
         return self.async_show_menu(
             step_id="manage_agents",
-            menu_options=menu_options,
+            menu_options={
+                "add_agent": "Add Agent",
+                "edit_agent": "Edit Agent",
+                "remove_agent": "Remove Agent",
+                "finish": "Back to Options"
+            },
             description_placeholders={"agents_list": agent_list}
         )
 
@@ -453,20 +500,10 @@ class MultiAgentRouterOptionsFlow(config_entries.OptionsFlow):
             errors=errors,
         )
 
-    async def async_step_back(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Go back to options menu."""
-        return await self.async_step_init()
-
     async def async_step_edit_agent(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Select agent to edit."""
-        # Check if we have agents to edit
-        if not self._agents:
-            return await self.async_step_manage_agents()
-
         if user_input is not None:
             self._editing_index = int(user_input["agent_index"])
             return await self.async_step_edit_agent_form()
@@ -564,21 +601,16 @@ class MultiAgentRouterOptionsFlow(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Remove an agent."""
-        # Check if we have agents to remove
-        if not self._agents:
-            return await self.async_step_manage_agents()
-
         if user_input is not None:
             # Remove agent
             agent_index = int(user_input["agent_index"])
-            removed_agent = self._agents.pop(agent_index)
-            _LOGGER.debug("Removed agent: %s", removed_agent[CONF_AGENT_NAME])
+            self._agents.pop(agent_index)
 
-            # Regenerate prompt without removed agent if any agents remain
-            if self._agents:
-                self._agent_prompt = build_agent_prompt(self._agents)
-            else:
-                self._agent_prompt = ""
+            if not self._agents:
+                return self.async_abort(reason="no_agents")
+
+            # Regenerate prompt without removed agent
+            self._agent_prompt = build_agent_prompt(self._agents)
 
             # Don't update entry here - will be saved when finishing
             return await self.async_step_manage_agents()
@@ -603,26 +635,21 @@ class MultiAgentRouterOptionsFlow(config_entries.OptionsFlow):
             data_schema=schema,
         )
 
-    async def async_step_save(
+    async def async_step_finish(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Save all changes and exit options flow."""
+        """Finish options flow and save all changes."""
         # Update config entry with all accumulated changes
-        _LOGGER.debug("Saving config: agent=%s, agents=%s", self._agent, len(self._agents))
         self.hass.config_entries.async_update_entry(
             self.config_entry,
             data={
                 CONF_AGENT: self._agent,
                 CONF_AGENTS: self._agents,
                 CONF_AGENT_PROMPT: self._agent_prompt,
+                CONF_PROMPT_GENERATOR_AGENT: self._prompt_generator_agent,
+                CONF_PROMPT_GENERATOR_PROMPT: self._prompt_generator_prompt,
             },
         )
 
         # Complete options flow
         return self.async_create_entry(title="", data={})
-
-    async def async_step_finish(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Legacy finish step - redirect to save."""
-        return await self.async_step_save(user_input)
