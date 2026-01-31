@@ -158,7 +158,8 @@
       "invalid_agent": "The selected agent does not exist."
     },
     "abort": {
-      "no_agents": "You must have at least one specialized agent configured."
+      "no_agents": "You must have at least one specialized agent configured.",
+      "config_error": "Configuration data is invalid or corrupted. Please remove and recreate the integration."
     }
   }
 }

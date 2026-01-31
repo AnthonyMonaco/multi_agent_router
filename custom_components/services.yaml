@@ -1,5 +1,0 @@
-# Services for Multi-Agent Router integration
-regenerate_prompt:
-  name: Regenerate Router Prompt
-  description: Regenerates the router agent's system prompt using AI based on the configured agents.
-  fields: {}

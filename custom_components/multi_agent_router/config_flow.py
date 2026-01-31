@@ -273,21 +273,75 @@ class MultiAgentRouterOptionsFlow(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Manage options."""
-        # Initialize with current config
-        self._agent = self.config_entry.data[CONF_AGENT]
-        self._agents = list(self.config_entry.data[CONF_AGENTS])
-        self._agent_prompt = self.config_entry.data.get(
-            CONF_AGENT_PROMPT,
-            build_agent_prompt(self._agents)  # Fallback for old configs
-        )
+        try:
+            # Initialize with current config using safe access
+            self._agent = self.config_entry.data.get(CONF_AGENT, "homeassistant")
+            self._agents = list(self.config_entry.data.get(CONF_AGENTS, []))
+
+            # Validate we have required data
+            if not self._agent:
+                _LOGGER.error("Config entry missing router agent (CONF_AGENT)")
+                return self.async_abort(reason="config_error")
+
+            if not self._agents:
+                _LOGGER.error("Config entry missing specialized agents (CONF_AGENTS)")
+                return self.async_abort(reason="no_agents")
+
+            # Validate agent structure
+            for i, agent in enumerate(self._agents):
+                if not isinstance(agent, dict):
+                    _LOGGER.error("Agent %d is not a dictionary: %s", i, type(agent))
+                    return self.async_abort(reason="config_error")
+                if CONF_AGENT_NAME not in agent or CONF_AGENT_ID not in agent:
+                    _LOGGER.error("Agent %d missing required fields: %s", i, agent)
+                    return self.async_abort(reason="config_error")
+
+            self._agent_prompt = self.config_entry.data.get(
+                CONF_AGENT_PROMPT,
+                build_agent_prompt(self._agents)
+            )
+
+        except Exception as err:
+            _LOGGER.error(
+                "Failed to initialize options flow for config entry %s: %s",
+                self.config_entry.entry_id,
+                err,
+                exc_info=True
+            )
+            return self.async_abort(reason="config_error")
 
         return self.async_show_menu(
             step_id="init",
             menu_options={
+                "edit_router": "Edit Router Agent",
                 "edit_prompt": "Edit Agent Prompt",
                 "manage_agents": "Manage Agents",
-                "finish": "Save & Exit"
+                "save": "Save & Exit"
             },
+        )
+
+    async def async_step_edit_router(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Edit the router agent."""
+        if user_input is not None:
+            # Save the updated router agent (don't update entry yet)
+            self._agent = user_input[CONF_AGENT]
+            return await self.async_step_init()
+
+        # Show current router agent for editing
+        schema = vol.Schema({
+            vol.Required(
+                CONF_AGENT,
+                default=self._agent
+            ): ConversationAgentSelector(
+                ConversationAgentSelectorConfig(language="en")
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="edit_router",
+            data_schema=schema,
         )
 
     async def async_step_edit_prompt(
@@ -332,14 +386,20 @@ class MultiAgentRouterOptionsFlow(config_entries.OptionsFlow):
         else:
             description = "No agents configured yet."
 
+        # Build menu options based on whether agents exist
+        menu_options = {
+            "add_agent": "Add Agent",
+            "back": "Back to Options"
+        }
+
+        # Only show edit/remove if we have agents
+        if self._agents:
+            menu_options["edit_agent"] = "Edit Agent"
+            menu_options["remove_agent"] = "Remove Agent"
+
         return self.async_show_menu(
             step_id="manage_agents",
-            menu_options={
-                "add_agent": "Add Agent",
-                "edit_agent": "Edit Agent",
-                "remove_agent": "Remove Agent",
-                "finish": "Back to Options"
-            },
+            menu_options=menu_options,
             description_placeholders={"agents_list": agent_list}
         )
 
@@ -393,10 +453,20 @@ class MultiAgentRouterOptionsFlow(config_entries.OptionsFlow):
             errors=errors,
         )
 
+    async def async_step_back(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Go back to options menu."""
+        return await self.async_step_init()
+
     async def async_step_edit_agent(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Select agent to edit."""
+        # Check if we have agents to edit
+        if not self._agents:
+            return await self.async_step_manage_agents()
+
         if user_input is not None:
             self._editing_index = int(user_input["agent_index"])
             return await self.async_step_edit_agent_form()
@@ -494,16 +564,21 @@ class MultiAgentRouterOptionsFlow(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Remove an agent."""
+        # Check if we have agents to remove
+        if not self._agents:
+            return await self.async_step_manage_agents()
+
         if user_input is not None:
             # Remove agent
             agent_index = int(user_input["agent_index"])
-            self._agents.pop(agent_index)
+            removed_agent = self._agents.pop(agent_index)
+            _LOGGER.debug("Removed agent: %s", removed_agent[CONF_AGENT_NAME])
 
-            if not self._agents:
-                return self.async_abort(reason="no_agents")
-
-            # Regenerate prompt without removed agent
-            self._agent_prompt = build_agent_prompt(self._agents)
+            # Regenerate prompt without removed agent if any agents remain
+            if self._agents:
+                self._agent_prompt = build_agent_prompt(self._agents)
+            else:
+                self._agent_prompt = ""
 
             # Don't update entry here - will be saved when finishing
             return await self.async_step_manage_agents()
@@ -528,11 +603,12 @@ class MultiAgentRouterOptionsFlow(config_entries.OptionsFlow):
             data_schema=schema,
         )
 
-    async def async_step_finish(
+    async def async_step_save(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Finish options flow and save all changes."""
+        """Save all changes and exit options flow."""
         # Update config entry with all accumulated changes
+        _LOGGER.debug("Saving config: agent=%s, agents=%s", self._agent, len(self._agents))
         self.hass.config_entries.async_update_entry(
             self.config_entry,
             data={
@@ -544,3 +620,9 @@ class MultiAgentRouterOptionsFlow(config_entries.OptionsFlow):
 
         # Complete options flow
         return self.async_create_entry(title="", data={})
+
+    async def async_step_finish(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Legacy finish step - redirect to save."""
+        return await self.async_step_save(user_input)
