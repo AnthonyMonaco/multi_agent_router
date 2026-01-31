@@ -12,7 +12,7 @@
         "data_description": {
           "router_agent": "Select the conversation agent that will act as the router",
           "prompt_generator_agent": "Agent that generates routing prompts (uses AI to create optimal prompts)",
-          "prompt_generator_prompt": "The prompt template for the generator. Use {agent_json} as placeholder for agent data."
+          "prompt_generator_prompt": "The prompt template for the generator. Use {{agent_json}} as placeholder for agent data."
         }
       },
       "add_another": {
