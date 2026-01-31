@@ -97,12 +97,25 @@ async def async_build_agent_prompt_with_ai(
     return build_agent_prompt(agents)
 
 
+def normalize_agent_name(name: str) -> str:
+    """Normalize agent name for comparison.
+
+    Converts between formats like 'conversation.jarvis_router' and 'Jarvis Router'.
+    """
+    # Remove 'conversation.' prefix if present
+    if name.startswith("conversation."):
+        name = name[13:]  # len("conversation.") = 13
+
+    # Convert underscores and hyphens to spaces, then normalize case
+    return name.lower().replace("_", " ").replace("-", " ").strip()
+
+
 async def async_update_agent_prompt(
     hass: HomeAssistant,
     agent_id: str,
     prompt: str
 ) -> bool:
-    """Update the agent's system prompt in its config entry.
+    """Update the agent's system prompt, supporting both entities and subentries.
 
     Returns True if successful, False otherwise.
     """
@@ -112,64 +125,111 @@ async def async_update_agent_prompt(
 
         # Find the conversation agent entity
         entity_entry = entity_registry.async_get(agent_id)
-        if not entity_entry:
-            _LOGGER.warning(
-                "Could not find agent entity %s in entity registry",
-                agent_id
-            )
-            return False
 
-        # Get the config entry for this entity
-        config_entry_id = entity_entry.config_entry_id
-        if not config_entry_id:
-            _LOGGER.warning(
-                "Agent entity %s has no associated config entry",
-                agent_id
-            )
-            return False
+        if entity_entry:
+            # Entity found - use existing entity-based logic
+            # Get the config entry for this entity
+            config_entry_id = entity_entry.config_entry_id
+            if not config_entry_id:
+                _LOGGER.warning(
+                    "Agent entity %s has no associated config entry",
+                    agent_id
+                )
+                return False
 
-        # Get the config entry
-        config_entry = hass.config_entries.async_get_entry(config_entry_id)
-        if not config_entry:
-            _LOGGER.warning(
-                "Could not find config entry %s for agent",
+            # Get the config entry
+            config_entry = hass.config_entries.async_get_entry(config_entry_id)
+            if not config_entry:
+                _LOGGER.warning(
+                    "Could not find config entry %s for agent",
+                    config_entry_id
+                )
+                return False
+
+            # Check if this is an OpenAI Conversation integration
+            if config_entry.domain not in ["openai_conversation", "extended_openai_conversation"]:
+                _LOGGER.warning(
+                    "Agent %s is from domain %s, not OpenAI Conversation. "
+                    "Automatic prompt update is only supported for OpenAI-based agents.",
+                    agent_id,
+                    config_entry.domain
+                )
+                return False
+
+            _LOGGER.debug(
+                "Updating prompt for agent %s (config entry %s, title: '%s')",
+                agent_id,
+                config_entry_id,
+                config_entry.title
+            )
+
+            # Update the prompt in the config entry options
+            # OpenAI Conversation stores the prompt in options
+            new_options = dict(config_entry.options)
+            new_options["prompt"] = prompt
+
+            hass.config_entries.async_update_entry(
+                config_entry,
+                options=new_options
+            )
+
+            _LOGGER.info(
+                "Successfully updated agent %s system prompt in config entry %s",
+                agent_id,
                 config_entry_id
             )
-            return False
+            return True
 
-        # Check if this is an OpenAI Conversation integration
-        if config_entry.domain not in ["openai_conversation", "extended_openai_conversation"]:
+        else:
+            # Entity not found - try to find as subentry
+            _LOGGER.debug(
+                "Agent %s not found as entity, checking OpenAI subentries...",
+                agent_id
+            )
+
+            # Normalize the agent name for matching
+            normalized_agent_name = normalize_agent_name(agent_id)
+            _LOGGER.debug("Normalized agent name for matching: '%s' (from agent_id: '%s')", normalized_agent_name, agent_id)
+
+            # Search through all OpenAI conversation config entries
+            for entry in hass.config_entries.async_entries("openai_conversation"):
+                _LOGGER.debug("Checking OpenAI config entry: %s (title: '%s')", entry.entry_id, entry.title)
+                # Check each subentry
+                for subentry_obj in entry.subentries:
+                    # Get subentry title and normalize it
+                    subentry_title = getattr(subentry_obj, "title", "")
+                    normalized_subentry_title = normalize_agent_name(subentry_title)
+                    _LOGGER.debug("  Checking subentry '%s' -> normalized: '%s' (match: %s)",
+                                 subentry_title, normalized_subentry_title,
+                                 normalized_agent_name == normalized_subentry_title)
+
+                    if normalized_agent_name == normalized_subentry_title:
+                        _LOGGER.info(
+                            "Found agent %s as subentry '%s' (subentry_id: %s) in OpenAI config entry %s",
+                            agent_id,
+                            subentry_title,
+                            getattr(subentry_obj, "subentry_id", "unknown"),
+                            entry.entry_id
+                        )
+
+                        # Convert subentry object to dict for async_update_subentry_prompt
+                        subentry_dict = {
+                            "subentry_id": getattr(subentry_obj, "subentry_id", None),
+                            "title": subentry_title,
+                            "data": getattr(subentry_obj, "data", {}),
+                        }
+
+                        # Update the subentry prompt
+                        return await async_update_subentry_prompt(
+                            hass, entry, subentry_obj, subentry_dict, prompt
+                        )
+
+            # Not found as entity or subentry
             _LOGGER.warning(
-                "Agent %s is from domain %s, not OpenAI Conversation. "
-                "Automatic prompt update is only supported for OpenAI-based agents.",
-                agent_id,
-                config_entry.domain
+                "Could not find agent %s as entity or subentry in OpenAI conversation",
+                agent_id
             )
             return False
-
-        _LOGGER.debug(
-            "Updating prompt for agent %s (config entry %s, title: '%s')",
-            agent_id,
-            config_entry_id,
-            config_entry.title
-        )
-
-        # Update the prompt in the config entry options
-        # OpenAI Conversation stores the prompt in options
-        new_options = dict(config_entry.options)
-        new_options["prompt"] = prompt
-
-        hass.config_entries.async_update_entry(
-            config_entry,
-            options=new_options
-        )
-
-        _LOGGER.info(
-            "Successfully updated agent %s system prompt in config entry %s",
-            agent_id,
-            config_entry_id
-        )
-        return True
 
     except Exception as e:
         _LOGGER.error(
@@ -291,6 +351,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.debug("Agent prompt (first 200 chars):\n%s...", agent_prompt[:200])
 
     # Attempt to auto-update the agent's system prompt
+    _LOGGER.info("🔄 Attempting to auto-update router agent prompt for: %s", agent_id)
     update_success = await async_update_agent_prompt(
         hass,
         agent_id,
@@ -299,11 +360,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if not update_success:
         _LOGGER.warning(
-            "Could not automatically update agent system prompt. "
+            "❌ Could not automatically update agent system prompt. "
             "Please manually set the system prompt for %s to:\n%s",
             agent_id,
             agent_prompt
         )
+    else:
+        _LOGGER.info("✅ Successfully auto-updated router agent prompt for: %s", agent_id)
 
     # Create and register conversation agent
     from homeassistant.components import conversation

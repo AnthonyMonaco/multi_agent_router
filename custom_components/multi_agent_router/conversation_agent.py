@@ -57,7 +57,7 @@ class MultiAgentRouter(AbstractConversationAgent):
         language = user_input.language or "en"
         conversation_id = user_input.conversation_id or ulid.ulid_now()
 
-        _LOGGER.debug("Processing input: '%s'", text)
+        _LOGGER.info("🎤 MultiAgentRouter received: '%s' (lang=%s, conv_id=%s)", text, language, conversation_id)
         self.metrics['total_requests'] += 1
 
         # Step 1: Call the unified agent
@@ -67,6 +67,7 @@ class MultiAgentRouter(AbstractConversationAgent):
         if self._is_routing_response(agent_response):
             # Extract agent name and route
             target_agent_name = self._extract_agent_name(agent_response)
+            _LOGGER.info("🎯 Routing decision: '%s' (extracted from response)", target_agent_name)
             target_agent = self._match_agent(target_agent_name)
 
             if not target_agent:
@@ -85,7 +86,7 @@ class MultiAgentRouter(AbstractConversationAgent):
             # Direct handling - return the response
             self.metrics['direct_handling'] += 1
             self._log_metrics()
-            _LOGGER.info("Agent handled request directly")
+            _LOGGER.warning("⚠️  Router handled request directly (NOT routing) - response: '%s'", agent_response)
             return self._create_response(agent_response, language, conversation_id)
 
     async def _call_agent(
@@ -93,6 +94,7 @@ class MultiAgentRouter(AbstractConversationAgent):
     ) -> str | None:
         """Call the unified agent with user text."""
         try:
+            _LOGGER.info("📞 Calling router agent: %s", self.agent_id)
             response = await self.hass.services.async_call(
                 "conversation",
                 "process",
@@ -108,7 +110,7 @@ class MultiAgentRouter(AbstractConversationAgent):
 
             # Extract response text
             response_text = self._extract_speech_from_response(response)
-            _LOGGER.debug("Agent response: '%s'", response_text)
+            _LOGGER.info("📥 Router agent responded: '%s'", response_text)
             return response_text
 
         except Exception as e:
@@ -138,6 +140,7 @@ class MultiAgentRouter(AbstractConversationAgent):
             target_agent[CONF_AGENT_NAME],
             target_agent[CONF_AGENT_ID]
         )
+        _LOGGER.info("📞 Calling specialized agent '%s' with input: '%s'", target_agent[CONF_AGENT_ID], text)
 
         try:
             target_response = await self.hass.services.async_call(
@@ -165,7 +168,7 @@ class MultiAgentRouter(AbstractConversationAgent):
                     conversation_id=conversation_id,
                 )
 
-            _LOGGER.debug("Target agent response: '%s'", speech_text)
+            _LOGGER.info("📤 Specialized agent responded: '%s'", speech_text)
 
         except Exception as e:
             _LOGGER.error("Target agent %s failed: %s", target_agent[CONF_AGENT_ID], e)
