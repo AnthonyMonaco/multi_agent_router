@@ -3,20 +3,16 @@
     "step": {
       "user": {
         "title": "Multi-Agent Router Setup",
-        "description": "Configure the router agent that will classify user requests.",
+        "description": "Configure the router agent and prompt generator. The router classifies requests, and the prompt generator can auto-create routing prompts.",
         "data": {
-          "router_agent": "Router Agent"
+          "router_agent": "Router Agent",
+          "prompt_generator_agent": "Prompt Generator Agent",
+          "prompt_generator_prompt": "Prompt Generator Prompt"
         },
         "data_description": {
-          "router_agent": "Select the conversation agent that will act as the router"
-        }
-      },
-      "agents": {
-        "title": "Manage Specialized Agents",
-        "description": "{agents_list}",
-        "menu_options": {
-          "add_agent": "Add Custom Agent",
-          "finish": "Finish Setup"
+          "router_agent": "Select the conversation agent that will act as the router",
+          "prompt_generator_agent": "Agent that generates routing prompts (uses AI to create optimal prompts)",
+          "prompt_generator_prompt": "The prompt template for the generator. Use {agent_json} as placeholder for agent data."
         }
       },
       "add_agent": {
@@ -25,7 +21,18 @@
         "data": {
           "name": "Agent Name",
           "agent_id": "Conversation Agent",
-          "description": "Description (what this agent handles)"
+          "description": "Description (what this agent handles)",
+          "agent_keywords": "Keywords (optional)"
+        },
+        "data_description": {
+          "agent_keywords": "Comma-separated keywords to help the router classify requests. Example: command, action, control"
+        }
+      },
+      "add_another": {
+        "title": "Add Another Agent?",
+        "description": "Currently configured agents:\n{agents}\n\nAdd another agent or continue to finish setup?",
+        "data": {
+          "add_another": "Add Another Agent"
         }
       },
       "edit_agent": {

@@ -3,22 +3,23 @@
     "step": {
       "user": {
         "title": "Multi-Agent Router Setup",
-        "description": "Configure the router agent that will classify user requests.",
+        "description": "{info}",
         "data": {
           "router_agent": "Router Agent",
-          "fast_path_agent": "Fast Path Agent (optional)"
+          "prompt_generator_agent": "Prompt Generator Agent",
+          "prompt_generator_prompt": "Prompt Generator Prompt"
         },
         "data_description": {
           "router_agent": "Select the conversation agent that will act as the router",
-          "fast_path_agent": "Select a conversation agent to handle simple requests quickly before LLM routing. Recommended: OpenAI agent for natural language understanding."
+          "prompt_generator_agent": "Agent that generates routing prompts (uses AI to create optimal prompts)",
+          "prompt_generator_prompt": "The prompt template for the generator. Use {agent_json} as placeholder for agent data."
         }
       },
-      "agents": {
-        "title": "Manage Specialized Agents",
-        "description": "{agents_list}",
-        "menu_options": {
-          "add_agent": "Add Custom Agent",
-          "finish": "Finish Setup"
+      "add_another": {
+        "title": "Add Another Agent?",
+        "description": "{description}",
+        "data": {
+          "add_another": "Add Another Agent"
         }
       },
       "add_agent": {

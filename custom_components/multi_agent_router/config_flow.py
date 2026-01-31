@@ -116,15 +116,19 @@ class MultiAgentRouterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle the initial step."""
+        """Handle the initial step - collect router agent and prompt generator config."""
         # Check if already configured
         if self._async_current_entries():
             return self.async_abort(reason="single_instance_allowed")
 
         if user_input is not None:
             self._agent = user_input[CONF_AGENT]
+            self._prompt_generator_agent = user_input[CONF_PROMPT_GENERATOR_AGENT]
+            self._prompt_generator_prompt = user_input[CONF_PROMPT_GENERATOR_PROMPT]
             _LOGGER.debug(f"Agent selected: {self._agent}")
-            return await self.async_step_agents()
+            _LOGGER.debug(f"Prompt generator configured: {self._prompt_generator_agent}")
+            # Go directly to agent management
+            return await self.async_step_add_agent()
 
         # Use ConversationAgentSelector for agent selection
         schema = vol.Schema({
@@ -134,37 +138,31 @@ class MultiAgentRouterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ): ConversationAgentSelector(
                 ConversationAgentSelectorConfig(language="en")
             ),
+            vol.Required(
+                CONF_PROMPT_GENERATOR_AGENT,
+                description={"suggested_value": DEFAULT_PROMPT_GENERATOR_AGENT}
+            ): ConversationAgentSelector(
+                ConversationAgentSelectorConfig(language="en")
+            ),
+            vol.Required(
+                CONF_PROMPT_GENERATOR_PROMPT,
+                description={"suggested_value": DEFAULT_PROMPT_GENERATOR_PROMPT}
+            ): TextSelector(
+                TextSelectorConfig(
+                    type=TextSelectorType.TEXT,
+                    multiline=True,
+                )
+            ),
         })
 
         return self.async_show_form(
             step_id="user",
             data_schema=schema,
+            description_placeholders={
+                "info": "Configure the router agent and prompt generator. The router classifies requests, and the prompt generator can auto-create routing prompts."
+            }
         )
 
-    async def async_step_agents(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Manage specialized agents."""
-        # Build agent list for display
-        agent_list = "None"
-        if self._agents:
-            agent_list = "\n".join([
-                f"- {agent[CONF_AGENT_NAME]} ({agent[CONF_AGENT_ID]})"
-                for agent in self._agents
-            ])
-            description = f"Currently configured agents:\n{agent_list}\n\nAdd more agents, configure prompt generator, or finish setup."
-        else:
-            description = "No agents configured yet. Add at least one agent."
-
-        return self.async_show_menu(
-            step_id="agents",
-            menu_options={
-                "add_agent": "Add Custom Agent",
-                "configure_prompt_generator": "Configure Prompt Generator",
-                "finish": "Finish Setup"
-            },
-            description_placeholders={"agents_list": agent_list}
-        )
 
     async def async_step_add_agent(
         self, user_input: dict[str, Any] | None = None
@@ -186,7 +184,8 @@ class MultiAgentRouterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_AGENT_KEYWORDS: user_input.get(CONF_AGENT_KEYWORDS, ""),
                 })
                 _LOGGER.debug(f"Added agent: {agent_name} -> {user_input[CONF_AGENT_ID]}")
-                return await self.async_step_agents()
+                # Ask if they want to add another
+                return await self.async_step_add_another()
 
         # Use ConversationAgentSelector for agent selection
         schema = vol.Schema({
@@ -216,48 +215,38 @@ class MultiAgentRouterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_configure_prompt_generator(
+    async def async_step_add_another(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Configure the prompt generator agent and its prompt."""
+        """Ask if user wants to add another agent."""
         if user_input is not None:
-            # Save prompt generator configuration
-            self._prompt_generator_agent = user_input[CONF_PROMPT_GENERATOR_AGENT]
-            self._prompt_generator_prompt = user_input[CONF_PROMPT_GENERATOR_PROMPT]
-            _LOGGER.debug(f"Configured prompt generator: {self._prompt_generator_agent}")
-            return await self.async_step_agents()
+            if user_input.get("add_another"):
+                return await self.async_step_add_agent()
+            else:
+                # Done! Go to prompt review
+                return await self.async_step_finish()
 
-        # Set defaults if not already set
-        if not self._prompt_generator_agent:
-            self._prompt_generator_agent = DEFAULT_PROMPT_GENERATOR_AGENT
-        if not self._prompt_generator_prompt:
-            self._prompt_generator_prompt = DEFAULT_PROMPT_GENERATOR_PROMPT
+        # Show current agents
+        agent_list = "\n".join([
+            f"- {agent[CONF_AGENT_NAME]} ({agent[CONF_AGENT_ID]})"
+            for agent in self._agents
+        ])
 
-        schema = vol.Schema({
-            vol.Required(
-                CONF_PROMPT_GENERATOR_AGENT,
-                description={"suggested_value": self._prompt_generator_agent}
-            ): ConversationAgentSelector(
-                ConversationAgentSelectorConfig(language="en")
-            ),
-            vol.Required(
-                CONF_PROMPT_GENERATOR_PROMPT,
-                description={"suggested_value": self._prompt_generator_prompt}
-            ): TextSelector(
-                TextSelectorConfig(
-                    type=TextSelectorType.TEXT,
-                    multiline=True,
-                )
-            ),
-        })
+        if not self._agents:
+            description = "No agents added yet. You need at least one agent."
+            default_add_another = True
+        else:
+            description = f"Currently configured agents:\n{agent_list}\n\nAdd another agent or continue to finish setup?"
+            default_add_another = False
 
         return self.async_show_form(
-            step_id="configure_prompt_generator",
-            data_schema=schema,
-            description_placeholders={
-                "info": "Configure which agent generates router prompts and the prompt it uses. The {agent_json} placeholder will be replaced with your agent list."
-            }
+            step_id="add_another",
+            data_schema=vol.Schema({
+                vol.Required("add_another", default=default_add_another): bool,
+            }),
+            description_placeholders={"agents": agent_list, "description": description}
         )
+
 
     async def async_step_finish(
         self, user_input: dict[str, Any] | None = None

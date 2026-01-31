@@ -5,6 +5,25 @@ All notable changes to the Multi-Agent Router integration will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-01-31
+
+### Fixed
+- **Critical Routing Logic Fix**: Corrected backwards routing examples in router prompts
+  - Previously: "turn on kitchen lights" → Jarvis Think (WRONG)
+  - Previously: "what's the weather" → Jarvis Do (WRONG)
+  - Now: Commands → Jarvis Do (execution agent)
+  - Now: Questions → Jarvis Think (reasoning agent)
+  - This fixes the "Jarvis Think not responding" issue
+
+### Changed
+- **Streamlined Configuration Flow**: Simplified the setup process
+  - Consolidated initial setup into single form collecting router agent, prompt generator, and prompt template
+  - Removed multi-step menu navigation (async_step_agents menu, async_step_configure_prompt_generator)
+  - Added async_step_add_another for streamlined agent addition with "Add Another?" prompt
+  - Reduced config_flow.py from 656 to 644 lines
+  - Updated strings.json and translations/en.json to match new flow
+  - New flow: Initial form → Add agents → Review prompt (3 steps vs 5+ steps previously)
+
 ## [1.3.0] - 2026-01-31
 
 ### Added
