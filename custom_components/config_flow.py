@@ -273,16 +273,41 @@ class MultiAgentRouterOptionsFlow(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Manage options."""
-        # Initialize with current config (with error handling)
         try:
+            # Initialize with current config using safe access
             self._agent = self.config_entry.data.get(CONF_AGENT, "homeassistant")
             self._agents = list(self.config_entry.data.get(CONF_AGENTS, []))
+
+            # Validate we have required data
+            if not self._agent:
+                _LOGGER.error("Config entry missing router agent (CONF_AGENT)")
+                return self.async_abort(reason="config_error")
+
+            if not self._agents:
+                _LOGGER.error("Config entry missing specialized agents (CONF_AGENTS)")
+                return self.async_abort(reason="no_agents")
+
+            # Validate agent structure
+            for i, agent in enumerate(self._agents):
+                if not isinstance(agent, dict):
+                    _LOGGER.error("Agent %d is not a dictionary: %s", i, type(agent))
+                    return self.async_abort(reason="config_error")
+                if CONF_AGENT_NAME not in agent or CONF_AGENT_ID not in agent:
+                    _LOGGER.error("Agent %d missing required fields: %s", i, agent)
+                    return self.async_abort(reason="config_error")
+
             self._agent_prompt = self.config_entry.data.get(
                 CONF_AGENT_PROMPT,
-                build_agent_prompt(self._agents) if self._agents else ""
+                build_agent_prompt(self._agents)
             )
+
         except Exception as err:
-            _LOGGER.error("Error loading config data: %s", err)
+            _LOGGER.error(
+                "Failed to initialize options flow for config entry %s: %s",
+                self.config_entry.entry_id,
+                err,
+                exc_info=True
+            )
             return self.async_abort(reason="config_error")
 
         return self.async_show_menu(
