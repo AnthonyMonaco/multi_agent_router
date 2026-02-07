@@ -350,23 +350,50 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.debug("Agent ID: %s", agent_id)
     _LOGGER.debug("Agent prompt (first 200 chars):\n%s...", agent_prompt[:200])
 
-    # Attempt to auto-update the agent's system prompt
-    _LOGGER.info("🔄 Attempting to auto-update router agent prompt for: %s", agent_id)
-    update_success = await async_update_agent_prompt(
+    # Apply prompt generator agent prompt
+    _LOGGER.info("🔄 Applying prompt generator agent prompt...")
+    prompt_gen_success = await async_update_agent_prompt(
+        hass,
+        prompt_generator_agent,
+        prompt_generator_prompt
+    )
+    if prompt_gen_success:
+        _LOGGER.info("✅ Successfully applied prompt generator agent prompt")
+    else:
+        _LOGGER.warning("❌ Could not apply prompt generator agent prompt")
+
+    # Apply router agent prompt
+    _LOGGER.info("🔄 Applying router agent prompt for: %s", agent_id)
+    router_success = await async_update_agent_prompt(
         hass,
         agent_id,
         agent_prompt
     )
-
-    if not update_success:
+    if not router_success:
         _LOGGER.warning(
-            "❌ Could not automatically update agent system prompt. "
+            "❌ Could not automatically update router agent system prompt. "
             "Please manually set the system prompt for %s to:\n%s",
             agent_id,
             agent_prompt
         )
     else:
-        _LOGGER.info("✅ Successfully auto-updated router agent prompt for: %s", agent_id)
+        _LOGGER.info("✅ Successfully applied router agent prompt")
+
+    # Apply each custom agent prompt
+    for agent in agents:
+        agent_custom_id = agent[CONF_AGENT_ID]
+        agent_custom_prompt = agent.get(CONF_AGENT_PROMPT)
+        if agent_custom_prompt:
+            _LOGGER.info("🔄 Applying prompt for custom agent: %s", agent_custom_id)
+            custom_success = await async_update_agent_prompt(
+                hass,
+                agent_custom_id,
+                agent_custom_prompt
+            )
+            if custom_success:
+                _LOGGER.info("✅ Successfully applied prompt for: %s", agent_custom_id)
+            else:
+                _LOGGER.warning("❌ Could not apply prompt for: %s", agent_custom_id)
 
     # Create and register conversation agent
     from homeassistant.components import conversation

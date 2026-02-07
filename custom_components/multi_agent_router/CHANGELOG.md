@@ -5,6 +5,36 @@ All notable changes to the Multi-Agent Router integration will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **OpenAI Conversation Subentry Support**: Router agents configured as OpenAI conversation subentries now automatically receive prompt updates
+  - Added `normalize_agent_name()` helper function to convert between agent ID formats (e.g., "conversation.jarvis_router" ↔ "Jarvis Router")
+  - Added `async_update_subentry_prompt()` function to update prompts for OpenAI conversation subentries
+  - Enhanced `async_update_agent_prompt()` to detect and update subentries when agent not found in entity registry
+  - Comprehensive debug logging for subentry matching process
+
+- **Enhanced Emoji-Based Logging**: Complete audit trail of routing decisions for easier debugging
+  - 🎤 Incoming request logging with language and conversation ID
+  - 📞 Agent call logging (router and specialized agents)
+  - 📥 Router agent response logging
+  - 🎯 Routing decision extraction logging
+  - ⚠️ Direct handling warning (indicates routing failure)
+  - 📤 Final response logging from specialized agent
+  - 🔄 Prompt update attempt logging
+  - ✅ Successful prompt update logging
+  - ❌ Failed prompt update logging
+
+### Changed
+- Router conversation flow logging upgraded from DEBUG to INFO level for better visibility
+- Prompt update logging enhanced with visual status indicators
+
+### Fixed
+- **Subentry Prompt Synchronization**: Router agents as OpenAI conversation subentries now properly sync their prompts
+  - Previously, subentries retained their manually configured prompts
+  - Now, multi-agent-router automatically updates subentry prompts on setup/reload
+  - Fixes issue where router would respond directly instead of routing to specialized agents
+
 ## [1.4.0] - 2026-01-31
 
 ### Fixed

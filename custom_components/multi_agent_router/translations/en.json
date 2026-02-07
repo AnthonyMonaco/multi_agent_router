@@ -3,62 +3,99 @@
     "step": {
       "user": {
         "title": "Multi-Agent Router Setup",
-        "description": "Configure the router agent and prompt generator. The router classifies requests, and the prompt generator can auto-create routing prompts.",
+        "description": "Configure your multi-agent routing system. Start by setting up the Prompt AI (required), then the Router AI, and add custom conversation agents.",
+        "menu_options": {
+          "prompt_ai": "Configure Prompt AI",
+          "router_ai": "Configure Router AI",
+          "custom_ai": "Manage Custom AIs",
+          "finish": "Finish Setup"
+        }
+      },
+      "prompt_ai": {
+        "title": "Configure Prompt AI",
+        "description": "Select the conversation agent that will generate routing prompts and configure its system prompt.",
         "data": {
-          "router_agent": "Router Agent",
           "prompt_generator_agent": "Prompt Generator Agent",
-          "prompt_generator_prompt": "Prompt Generator Prompt"
+          "prompt_generator_prompt": "Prompt Generator System Prompt"
         },
         "data_description": {
-          "router_agent": "Select the conversation agent that will act as the router",
           "prompt_generator_agent": "Agent that generates routing prompts (uses AI to create optimal prompts)",
-          "prompt_generator_prompt": "The prompt template for the generator. Use {{agent_json}} as placeholder for agent data."
+          "prompt_generator_prompt": "The prompt template for the generator. Use {agent_json} as placeholder for agent data."
+        }
+      },
+      "router_ai": {
+        "title": "Configure Router AI",
+        "description": "Select the conversation agent that will route user requests and configure its routing prompt.",
+        "data": {
+          "agent": "Router Agent",
+          "agent_prompt": "Router System Prompt"
+        },
+        "data_description": {
+          "agent": "Select the conversation agent that will act as the router",
+          "agent_prompt": "This prompt will be set as the router agent's system prompt. It tells the router how to classify requests and which agents to route to."
+        }
+      },
+      "custom_ai": {
+        "title": "Manage Custom AIs",
+        "description": "{agents_list}",
+        "menu_options": {
+          "add_agent": "Add New Custom AI",
+          "edit_agent": "Edit Existing Custom AI",
+          "remove_agent": "Remove Custom AI",
+          "user": "Back to Main Menu"
+        }
+      },
+      "select_custom_ai": {
+        "title": "Select Custom AI to Edit",
+        "description": "Choose which custom agent to edit.",
+        "data": {
+          "agent_index": "Select Agent"
         }
       },
       "add_agent": {
-        "title": "Add Specialized Agent",
-        "description": "Configure a specialized agent with its purpose.",
+        "title": "Custom AI Configuration",
+        "description": "Configure a specialized conversation agent that the router can direct requests to.",
         "data": {
           "name": "Agent Name",
           "agent_id": "Conversation Agent",
+          "agent_prompt": "Agent System Prompt (optional)",
           "description": "Description (what this agent handles)",
           "agent_keywords": "Keywords (optional)"
         },
         "data_description": {
-          "agent_keywords": "Comma-separated keywords to help the router classify requests. Example: command, action, control"
-        }
-      },
-      "add_another": {
-        "title": "Add Another Agent?",
-        "description": "Currently configured agents:\n{agents}\n\nAdd another agent or continue to finish setup?",
-        "data": {
-          "add_another": "Add Another Agent"
+          "name": "Friendly name for this agent",
+          "agent_id": "Select the conversation agent entity",
+          "agent_prompt": "Custom system prompt for this agent. Will be auto-filled from agent's current prompt if available.",
+          "description": "Describe what types of requests this agent should handle",
+          "agent_keywords": "Comma-separated keywords to help the router classify requests. Example: command, action, control, turn on, turn off"
         }
       },
       "edit_agent": {
-        "title": "Edit Agent",
-        "description": "Modify the agent configuration.",
+        "title": "Edit Custom AI",
+        "description": "Select an agent to edit.",
         "data": {
-          "name": "Agent Name",
-          "agent_id": "Conversation Agent",
-          "description": "Description (what this agent handles)"
+          "agent_index": "Select Agent to Edit"
+        }
+      },
+      "remove_agent": {
+        "title": "Remove Custom AI",
+        "description": "Select an agent to remove.",
+        "data": {
+          "agent_index": "Select Agent to Remove"
         }
       },
       "finish": {
-        "title": "Configure Router Prompt",
-        "description": "Review and customize the routing prompt that will be used by the router agent to classify requests.",
-        "data": {
-          "router_prompt": "Router Agent Prompt"
-        },
-        "data_description": {
-          "router_prompt": "This prompt will be set as the router agent's system prompt. It tells the router how to classify requests and which agents to route to."
-        }
+        "title": "Finish Setup",
+        "description": "Complete the setup. Ensure Prompt AI, Router AI, and at least one Custom AI are configured."
       }
     },
     "error": {
       "no_agents": "You must configure at least one specialized agent.",
+      "no_custom_agents": "At least one custom AI must be configured before finishing setup.",
       "duplicate_name": "An agent with this name already exists.",
-      "invalid_agent": "The selected agent does not exist."
+      "invalid_agent": "The selected agent does not exist.",
+      "missing_prompt_ai": "Prompt AI must be configured before finishing setup. Please configure it from the main menu.",
+      "missing_router_ai": "Router AI must be configured before finishing setup. Please configure it from the main menu."
     },
     "abort": {
       "already_configured": "This integration is already configured.",
@@ -69,77 +106,104 @@
   "options": {
     "step": {
       "init": {
-        "title": "Multi-Agent Router Options",
-        "description": "Update router agent and manage specialized agents.",
-        "data": {
-          "router_agent": "Router Agent"
-        },
+        "title": "Multi-Agent Router Configuration",
+        "description": "Manage your multi-agent routing system configuration.",
         "menu_options": {
-          "edit_prompt": "Edit Router Prompt",
-          "manage_agents": "Manage Agents",
-          "finish": "Save & Exit"
+          "prompt_ai": "Edit Prompt AI",
+          "router_ai": "Edit Router AI",
+          "custom_ai": "Manage Custom AIs",
+          "finish": "Save Changes"
         }
       },
-      "edit_prompt": {
-        "title": "Edit Router Prompt",
-        "description": "Customize the routing prompt used by the router agent to classify requests. This prompt will be automatically updated when you add, edit, or remove agents.",
+      "prompt_ai": {
+        "title": "Edit Prompt AI",
+        "description": "Update the prompt generator agent configuration.",
         "data": {
-          "router_prompt": "Router Agent Prompt"
+          "prompt_generator_agent": "Prompt Generator Agent",
+          "prompt_generator_prompt": "Prompt Generator System Prompt"
         },
         "data_description": {
-          "router_prompt": "This prompt is set as the router agent's system prompt and tells it how to classify and route requests."
+          "prompt_generator_agent": "Agent that generates routing prompts",
+          "prompt_generator_prompt": "The prompt template for the generator. Use {agent_json} as placeholder."
         }
       },
-      "manage_agents": {
-        "title": "Manage Specialized Agents",
+      "router_ai": {
+        "title": "Edit Router AI",
+        "description": "Update the router agent configuration.",
+        "data": {
+          "agent": "Router Agent",
+          "agent_prompt": "Router System Prompt"
+        },
+        "data_description": {
+          "agent": "The conversation agent that routes requests",
+          "agent_prompt": "The routing prompt used to classify requests"
+        }
+      },
+      "custom_ai": {
+        "title": "Manage Custom AIs",
         "description": "{agents_list}",
         "menu_options": {
-          "add_agent": "Add Agent",
-          "edit_agent": "Edit Agent",
-          "remove_agent": "Remove Agent",
-          "finish": "Back to Options"
+          "add_agent": "Add New Custom AI",
+          "edit_agent": "Edit Existing Custom AI",
+          "remove_agent": "Remove Custom AI",
+          "init": "Back to Options Menu"
+        }
+      },
+      "select_custom_ai": {
+        "title": "Select Custom AI to Edit",
+        "description": "Choose which custom agent to edit.",
+        "data": {
+          "agent_index": "Select Agent"
         }
       },
       "add_agent": {
-        "title": "Add Specialized Agent",
-        "description": "Configure a specialized agent with its purpose.",
+        "title": "Custom AI Configuration",
+        "description": "Configure a specialized conversation agent.",
         "data": {
           "name": "Agent Name",
           "agent_id": "Conversation Agent",
-          "description": "Description (what this agent handles)"
+          "agent_prompt": "Agent System Prompt (optional)",
+          "description": "Description (what this agent handles)",
+          "agent_keywords": "Keywords (optional)"
+        },
+        "data_description": {
+          "name": "Friendly name for this agent",
+          "agent_id": "Select the conversation agent entity",
+          "agent_prompt": "Custom system prompt for this agent",
+          "description": "Describe what types of requests this agent should handle",
+          "agent_keywords": "Comma-separated keywords to help router classify requests"
         }
       },
       "edit_agent": {
-        "title": "Edit Agent",
-        "description": "Modify the agent configuration.",
+        "title": "Edit Custom AI",
+        "description": "Select an agent to edit.",
         "data": {
           "agent_index": "Select Agent to Edit"
         }
       },
-      "edit_agent_form": {
-        "title": "Edit Agent",
-        "description": "Modify the agent configuration.",
-        "data": {
-          "name": "Agent Name",
-          "agent_id": "Conversation Agent",
-          "description": "Description (what this agent handles)"
-        }
-      },
       "remove_agent": {
-        "title": "Remove Agent",
+        "title": "Remove Custom AI",
         "description": "Select an agent to remove.",
         "data": {
           "agent_index": "Select Agent to Remove"
         }
+      },
+      "finish": {
+        "title": "Save Changes",
+        "description": "Save all configuration changes."
       }
     },
     "error": {
       "no_agents": "You must have at least one specialized agent.",
+      "no_custom_agents": "At least one custom AI must be configured.",
       "duplicate_name": "An agent with this name already exists.",
-      "invalid_agent": "The selected agent does not exist."
+      "invalid_agent": "The selected agent does not exist.",
+      "missing_prompt_ai": "Prompt AI must be configured.",
+      "missing_router_ai": "Router AI must be configured."
     },
     "abort": {
-      "no_agents": "You must have at least one specialized agent configured."
+      "no_agents": "You must have at least one specialized agent configured.",
+      "config_error": "Configuration data is invalid or corrupted. Please remove and recreate the integration."
     }
   }
 }
