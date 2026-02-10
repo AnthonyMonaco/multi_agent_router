@@ -112,6 +112,7 @@ class MultiAgentRouterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._prompt_generator_agent: str | None = None
         self._prompt_generator_prompt: str | None = None
         self._editing_custom_ai_index: int | None = None
+        self._is_adding_custom_ai: bool = False
 
     def _get_configuration_status(self) -> str:
         """Get current configuration status for display."""
@@ -287,7 +288,9 @@ class MultiAgentRouterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Add a new Custom AI."""
-        return await self.async_step_edit_custom_ai_form(user_input, is_add=True)
+        self._is_adding_custom_ai = True
+        self._editing_custom_ai_index = None
+        return await self.async_step_edit_custom_ai_form(user_input)
 
     async def async_step_select_edit_custom_ai(
         self, user_input: dict[str, Any] | None = None
@@ -295,7 +298,8 @@ class MultiAgentRouterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Select Custom AI to edit."""
         if user_input is not None:
             self._editing_custom_ai_index = int(user_input["agent_index"])
-            return await self.async_step_edit_custom_ai_form(None, is_add=False)
+            self._is_adding_custom_ai = False
+            return await self.async_step_edit_custom_ai_form(None)
 
         # Create selection options
         agent_choices = [
@@ -324,7 +328,7 @@ class MultiAgentRouterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return await self.async_step_select_edit_custom_ai(user_input)
 
     async def async_step_edit_custom_ai_form(
-        self, user_input: dict[str, Any] | None = None, is_add: bool = True
+        self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Unified form for adding/editing Custom AI."""
         errors = {}
@@ -349,7 +353,7 @@ class MultiAgentRouterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_AGENT_PROMPT: user_input.get(CONF_AGENT_PROMPT, ""),
                 }
 
-                if is_add:
+                if self._is_adding_custom_ai:
                     # Add new agent
                     self._agents.append(agent_data)
                     _LOGGER.debug(f"Added custom AI: {agent_name}")
@@ -357,12 +361,15 @@ class MultiAgentRouterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     # Update existing agent
                     self._agents[self._editing_custom_ai_index] = agent_data
                     _LOGGER.debug(f"Updated custom AI: {agent_name}")
-                    self._editing_custom_ai_index = None
+
+                # Clear state
+                self._editing_custom_ai_index = None
+                self._is_adding_custom_ai = False
 
                 return await self.async_step_manage_custom_ais()
 
         # Prepare form fields
-        if is_add:
+        if self._is_adding_custom_ai:
             # Defaults for new agent
             default_name = ""
             default_agent_id = "homeassistant"
@@ -377,10 +384,7 @@ class MultiAgentRouterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             default_description = current_agent[CONF_AGENT_DESCRIPTION]
             default_keywords = current_agent.get(CONF_AGENT_KEYWORDS, "")
             default_prompt = current_agent.get(CONF_AGENT_PROMPT, "")
-
-            # Auto-fetch prompt if not set
-            if not default_prompt:
-                default_prompt = await self._get_agent_prompt(default_agent_id)
+            # The stored prompt is the source of truth, don't fetch from entity
 
         schema = vol.Schema({
             vol.Required(CONF_AGENT_NAME, default=default_name): TextSelector(
@@ -406,7 +410,7 @@ class MultiAgentRouterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ),
         })
 
-        step_id = "add_custom_ai" if is_add else "edit_custom_ai_form"
+        step_id = "add_custom_ai" if self._is_adding_custom_ai else "edit_custom_ai_form"
 
         return self.async_show_form(
             step_id=step_id,
@@ -563,6 +567,7 @@ class MultiAgentRouterOptionsFlow(config_entries.OptionsFlow):
         self._prompt_generator_agent: str | None = None
         self._prompt_generator_prompt: str | None = None
         self._editing_custom_ai_index: int | None = None
+        self._is_adding_custom_ai: bool = False
 
     def _get_configuration_status(self) -> str:
         """Get current configuration status for display."""
@@ -744,7 +749,9 @@ class MultiAgentRouterOptionsFlow(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Add a new Custom AI."""
-        return await self.async_step_edit_custom_ai_form(user_input, is_add=True)
+        self._is_adding_custom_ai = True
+        self._editing_custom_ai_index = None
+        return await self.async_step_edit_custom_ai_form(user_input)
 
     async def async_step_select_edit_custom_ai(
         self, user_input: dict[str, Any] | None = None
@@ -752,7 +759,8 @@ class MultiAgentRouterOptionsFlow(config_entries.OptionsFlow):
         """Select Custom AI to edit."""
         if user_input is not None:
             self._editing_custom_ai_index = int(user_input["agent_index"])
-            return await self.async_step_edit_custom_ai_form(None, is_add=False)
+            self._is_adding_custom_ai = False
+            return await self.async_step_edit_custom_ai_form(None)
 
         # Create selection options
         agent_choices = [
@@ -781,7 +789,7 @@ class MultiAgentRouterOptionsFlow(config_entries.OptionsFlow):
         return await self.async_step_select_edit_custom_ai(user_input)
 
     async def async_step_edit_custom_ai_form(
-        self, user_input: dict[str, Any] | None = None, is_add: bool = True
+        self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Unified form for adding/editing Custom AI."""
         errors = {}
@@ -806,7 +814,7 @@ class MultiAgentRouterOptionsFlow(config_entries.OptionsFlow):
                     CONF_AGENT_PROMPT: user_input.get(CONF_AGENT_PROMPT, ""),
                 }
 
-                if is_add:
+                if self._is_adding_custom_ai:
                     # Add new agent
                     self._agents.append(agent_data)
                     _LOGGER.debug(f"Added custom AI: {agent_name}")
@@ -814,12 +822,15 @@ class MultiAgentRouterOptionsFlow(config_entries.OptionsFlow):
                     # Update existing agent
                     self._agents[self._editing_custom_ai_index] = agent_data
                     _LOGGER.debug(f"Updated custom AI: {agent_name}")
-                    self._editing_custom_ai_index = None
+
+                # Clear state
+                self._editing_custom_ai_index = None
+                self._is_adding_custom_ai = False
 
                 return await self.async_step_manage_custom_ais()
 
         # Prepare form fields
-        if is_add:
+        if self._is_adding_custom_ai:
             # Defaults for new agent
             default_name = ""
             default_agent_id = "homeassistant"
@@ -834,10 +845,7 @@ class MultiAgentRouterOptionsFlow(config_entries.OptionsFlow):
             default_description = current_agent[CONF_AGENT_DESCRIPTION]
             default_keywords = current_agent.get(CONF_AGENT_KEYWORDS, "")
             default_prompt = current_agent.get(CONF_AGENT_PROMPT, "")
-
-            # Auto-fetch prompt if not set
-            if not default_prompt:
-                default_prompt = await self._get_agent_prompt(default_agent_id)
+            # The stored prompt is the source of truth, don't fetch from entity
 
         schema = vol.Schema({
             vol.Required(CONF_AGENT_NAME, default=default_name): TextSelector(
@@ -863,7 +871,7 @@ class MultiAgentRouterOptionsFlow(config_entries.OptionsFlow):
             ),
         })
 
-        step_id = "add_custom_ai" if is_add else "edit_custom_ai_form"
+        step_id = "add_custom_ai" if self._is_adding_custom_ai else "edit_custom_ai_form"
 
         return self.async_show_form(
             step_id=step_id,
